@@ -1,9 +1,8 @@
-# GenDC
+# gendc-python
 
 ```python
-import gendc_separator.descriptor as gendc
-
-gendc_descriptor = gendc.Container(binary_gendc_information)
+from gendc_python.gendc_separator import descriptor 
+gendc_descriptor = descriptor.Container("binary_gendc_information")
 ```
 
 ## Reference

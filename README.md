@@ -1,4 +1,4 @@
-# GenDC
+# gendc-python
 
 ```python
 from gendc_python.gendc_separator import descriptor 

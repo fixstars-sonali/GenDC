@@ -1,0 +1,37 @@
+name: Release GenDC Header Library
+
+on:
+  push:
+    tags:
+      - 'v*'  # triggered by tag starting with 'v'
+
+jobs:
+  release-job:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v2
+
+    - name: Create ZIP Archive
+      run: |
+        cd gendc_cpp
+        zip -r gendc_separator.zip gendc_separator
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref_name }}
+        body: |
+          Release Notes for ${{ github.ref_name }}
+
+    - name: Upload ZIP to Release
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: gendc_cpp/gendc_separator.zip
+        asset_name: gendc_separator.zip
+        asset_content_type: application/zip

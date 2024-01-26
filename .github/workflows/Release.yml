@@ -17,7 +17,7 @@ jobs:
       run: |
         cd gendc_cpp
         cp ../LICENSE.txt .
-        zip -r gendc_separator.zip gendc_separator
+        zip -r gendc_separator_${{ github.ref_name }}_win64.zip gendc_separator
     - name: Release
       uses: softprops/action-gh-release@v1
       with:

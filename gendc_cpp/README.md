@@ -15,6 +15,8 @@ cd vcpkg
 ```
 cd .\gendc_cpp\
 <path-to-vcpkg.exe> install
+
+$env:PKG_CONFIG_PATH="C:\WorkSpace\Sensing-Dev\sonali\GenDC\gendc_cpp\vcpkg_installed\x64-windows\lib\pkgconfig;$env:PKG_CONFIG_PATH"  
 ```
 
 ### Build
@@ -29,7 +31,7 @@ ninja -C build
 - Use visual studio as back end
 
 ```powershell
- meson setup ../build --backend vs2022
+ meson setup ../build --backend vs2022 -Dtests=enabled --pkg-config-path "C:\WorkSpace\Sensing-Dev\sonali\GenDC\gendc_cpp\vcpkg_installed\x64-windows\lib\pkgconfig" 
  ```
 
 - reconfigure 

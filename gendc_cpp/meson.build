@@ -7,7 +7,7 @@ project('gendc', 'c',
 
 gst_version = meson.project_version()
 api_version = '1.0'
-gstreamer_version = '1.16'
+gstreamer_version = '1.22.5#7'
 #gstreamer_version = '1.19'
 
 have_cxx = add_languages('cpp', native: false, required: false)
@@ -114,12 +114,12 @@ foreach extra_arg : warning_c_flags
   endif
 endforeach
 
-gst_dep = dependency('gstreamer-1.0', version : '>=@0@'.format(gstreamer_version), required : true, 
+gst_dep = dependency('gstreamer-1.0', required : true, 
 fallback : ['gstreamer', 'gst_dep'])
 
-gstbase_dep = dependency('gstreamer-base-1.0',version : '>=@0@'.format(gstreamer_version),
+gstbase_dep = dependency('gstreamer-base-1.0',
   fallback : ['gstreamer', 'gst_base_dep'])
-gstcheck_dep = dependency('gstreamer-check-1.0', version : '>=@0@'.format(gstreamer_version),
+gstcheck_dep = dependency('gstreamer-check-1.0',
   required : get_option('tests'),
   fallback : ['gstreamer', 'gst_check_dep'])
 libm = cc.find_library('m', required : false)

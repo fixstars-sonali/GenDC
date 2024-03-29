@@ -6,7 +6,7 @@ endif
 
 tests = [
     # [ 'elements/wavparse', false, [gstriff_dep] ],
-    [ 'elements/gendcparse' ],
+    [ 'elements/gendcseparator' ],
 
 ]
 

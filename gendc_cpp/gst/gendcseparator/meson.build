@@ -1,17 +1,17 @@
 
 gendcparse_src = [
-  'gstgendcparse.c',
+  'gstgendcseparator.c',
 ]
 
 gendcparse_headers = [
-  'gstgendcparse.h',
+  'gstgendcseparator.h',
 ]
 
 # gendc_dep = declare_dependency(link_with : gendc,
 #   include_directories : [include, separator]
 #   )
 
-gstgendcparse = library('gstgendcparse',
+gstgendcseparator = library('gstgendcseparator',
   gendcparse_src,gendcparse_headers,
   c_args : gst_plugins_args,
   include_directories : [include,configinc, separator],
@@ -19,4 +19,4 @@ gstgendcparse = library('gstgendcparse',
   install : true,
   install_dir : plugins_install_dir,
 )
-plugins += [gstgendcparse]
+plugins += [gstgendcseparator]

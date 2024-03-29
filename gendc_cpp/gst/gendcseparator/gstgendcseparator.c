@@ -17,10 +17,10 @@
 
 #include <gst/gst.h>
 
-#include "gstgendcparse.h"
+#include "gstgendcseparator.h"
 
-GST_DEBUG_CATEGORY_STATIC (gst_gendc_separator_debug);
-#define GST_CAT_DEFAULT gst_gendc_separator_debug
+GST_DEBUG_CATEGORY_STATIC (gst_gendcseparator_debug);
+#define GST_CAT_DEFAULT gst_gendcseparator_debug
 
 #define COMPONENT_COUNT_OFFSET 52
 #define COMPONENT_COUNT_SIZE 4
@@ -67,27 +67,27 @@ static GstStaticPadTemplate component_src_factory = GST_STATIC_PAD_TEMPLATE ("co
 
 static gint num_acrual_src_component_pad = 0;
 
-#define gst_gendc_separator_parent_class parent_class
-G_DEFINE_TYPE (GstGenDCSeparator, gst_gendc_separator, GST_TYPE_ELEMENT);
+#define gst_gendcseparator_parent_class parent_class
+G_DEFINE_TYPE (GstGenDCSeparator, gst_gendcseparator, GST_TYPE_ELEMENT);
 
-GST_ELEMENT_REGISTER_DEFINE (gendc_separator, "gendcseparator", GST_RANK_NONE,
+GST_ELEMENT_REGISTER_DEFINE (gendcseparator, "gendcseparator", GST_RANK_NONE,
     GST_TYPE_GENDCSEPARATOR);
 
-static void gst_gendc_separator_set_property (GObject * object,
+static void gst_gendcseparator_set_property (GObject * object,
     guint prop_id, const GValue * value, GParamSpec * pspec);
-static void gst_gendc_separator_get_property (GObject * object,
+static void gst_gendcseparator_get_property (GObject * object,
     guint prop_id, GValue * value, GParamSpec * pspec);
 
-static gboolean gst_gendc_separator_sink_event (GstPad * pad,
+static gboolean gst_gendcseparator_sink_event (GstPad * pad,
     GstObject * parent, GstEvent * event);
-static GstFlowReturn gst_gendc_separator_chain (GstPad * pad,
+static GstFlowReturn gst_gendcseparator_chain (GstPad * pad,
     GstObject * parent, GstBuffer * buf);
 
 /* GObject vmethod implementations */
 
 /* initialize the gendcseparator's class */
 static void
-gst_gendc_separator_class_init (GstGenDCSeparatorClass * klass)
+gst_gendcseparator_class_init (GstGenDCSeparatorClass * klass)
 {
   GObjectClass *gobject_class;
   GstElementClass *gstelement_class;
@@ -95,8 +95,8 @@ gst_gendc_separator_class_init (GstGenDCSeparatorClass * klass)
   gobject_class = (GObjectClass *) klass;
   gstelement_class = (GstElementClass *) klass;
 
-  gobject_class->set_property = gst_gendc_separator_set_property;
-  gobject_class->get_property = gst_gendc_separator_get_property;
+  gobject_class->set_property = gst_gendcseparator_set_property;
+  gobject_class->get_property = gst_gendcseparator_get_property;
 
   g_object_class_install_property (gobject_class, PROP_SILENT,
       g_param_spec_boolean ("silent", "Silent", "Produce verbose output ?",
@@ -113,7 +113,7 @@ gst_gendc_separator_class_init (GstGenDCSeparatorClass * klass)
 }
 
 static GstPad*
-gst_gendc_separator_init_component_src_pad(GstGenDCSeparator * filter, const gchar* component_pad_name){
+gst_gendcseparator_init_component_src_pad(GstGenDCSeparator * filter, const gchar* component_pad_name){
 
   GstPad* pad = gst_element_get_static_pad(GST_ELEMENT(filter), component_pad_name);
 
@@ -129,11 +129,11 @@ gst_gendc_separator_init_component_src_pad(GstGenDCSeparator * filter, const gch
 }
 
 static void
-gst_gendc_separator_init (GstGenDCSeparator * filter)
+gst_gendcseparator_init (GstGenDCSeparator * filter)
 {
   filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink");
-  gst_pad_set_event_function (filter->sinkpad, GST_DEBUG_FUNCPTR (gst_gendc_separator_sink_event));
-  gst_pad_set_chain_function (filter->sinkpad, GST_DEBUG_FUNCPTR (gst_gendc_separator_chain));
+  gst_pad_set_event_function (filter->sinkpad, GST_DEBUG_FUNCPTR (gst_gendcseparator_sink_event));
+  gst_pad_set_chain_function (filter->sinkpad, GST_DEBUG_FUNCPTR (gst_gendcseparator_chain));
   GST_PAD_SET_PROXY_CAPS (filter->sinkpad);
   gst_element_add_pad (GST_ELEMENT (filter), filter->sinkpad);
 
@@ -147,7 +147,7 @@ gst_gendc_separator_init (GstGenDCSeparator * filter)
 }
 
 static void
-gst_gendc_separator_set_property (GObject * object, guint prop_id, const GValue * value, GParamSpec * pspec)
+gst_gendcseparator_set_property (GObject * object, guint prop_id, const GValue * value, GParamSpec * pspec)
 {
   GstGenDCSeparator *filter = GST_GENDCSEPARATOR (object);
 
@@ -162,7 +162,7 @@ gst_gendc_separator_set_property (GObject * object, guint prop_id, const GValue 
 }
 
 static void
-gst_gendc_separator_get_property (GObject * object, guint prop_id, GValue * value, GParamSpec * pspec)
+gst_gendcseparator_get_property (GObject * object, guint prop_id, GValue * value, GParamSpec * pspec)
 {
   GstGenDCSeparator *filter = GST_GENDCSEPARATOR (object);
 
@@ -178,7 +178,7 @@ gst_gendc_separator_get_property (GObject * object, guint prop_id, GValue * valu
 
 /* this function handles sink events */
 static gboolean
-gst_gendc_separator_sink_event (GstPad * pad, GstObject * parent,
+gst_gendcseparator_sink_event (GstPad * pad, GstObject * parent,
     GstEvent * event)
 {
   GstGenDCSeparator *filter;
@@ -266,7 +266,7 @@ GstBuffer * _generate_descriptor_buffer(GstMapInfo map, GstGenDCSeparator* filte
 
 
 static GstFlowReturn
-gst_gendc_separator_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
+gst_gendcseparator_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 {
   GstGenDCSeparator *filter  = GST_GENDCSEPARATOR (parent);
   GstMapInfo map;
@@ -339,7 +339,7 @@ gst_gendc_separator_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 
     if (info->is_available_component){
       gchar* pad_name = g_strdup_printf("component_src%u", info->ith_valid_component); 
-      GstPad* comp_pad = gst_gendc_separator_init_component_src_pad(filter, pad_name);
+      GstPad* comp_pad = gst_gendcseparator_init_component_src_pad(filter, pad_name);
       g_free(pad_name);
 
       if (map.size < info->dataoffset + info->datasize){
@@ -389,8 +389,8 @@ gst_gendc_separator_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 static gboolean
 gendcseparator_init (GstPlugin * gendcseparator)
 {
-  // GST_DEBUG_CATEGORY_INIT (gst_gendc_separator_debug, "gendcseparator", 0, "Template gendcseparator");
-  // return GST_ELEMENT_REGISTER (gendc_separator, gendcseparator);
+  // GST_DEBUG_CATEGORY_INIT (gst_gendcseparator_debug, "gendcseparator", 0, "Template gendcseparator");
+  // return GST_ELEMENT_REGISTER (gendcseparator, gendcseparator);
   return gst_element_register (gendcseparator, "gendcseparator", GST_RANK_NONE, GST_TYPE_GENDCSEPARATOR);
 }
 

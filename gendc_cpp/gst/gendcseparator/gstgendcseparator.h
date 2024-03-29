@@ -51,8 +51,8 @@
 
 G_BEGIN_DECLS
 
-#define GST_TYPE_GENDCSEPARATOR (gst_gendc_separator_get_type())
-G_DECLARE_FINAL_TYPE (GstGenDCSeparator, gst_gendc_separator,
+#define GST_TYPE_GENDCSEPARATOR (gst_gendcseparator_get_type())
+G_DECLARE_FINAL_TYPE (GstGenDCSeparator, gst_gendcseparator,
     GST, GENDCSEPARATOR, GstElement)
 
 struct _ComponentInfo

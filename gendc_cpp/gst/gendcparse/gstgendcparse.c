@@ -1,12 +1,12 @@
 /**
- * SECTION:element-gendcparse
+ * SECTION:element-gendcseparator
  *
- * FIXME:Describe gendcparse here.
+ * FIXME:Describe gendcseparator here.
  *
  * <refsect2>
  * <title>Example launch line</title>
  * |[
- * gst-launch -v -m fakesrc ! gendcparse ! fakesink silent=TRUE
+ * gst-launch -v -m fakesrc ! gendcseparator ! fakesink silent=TRUE
  * ]|
  * </refsect2>
  */
@@ -15,386 +15,400 @@
 #include <config.h>
 #endif
 
-#include <glib-object.h>
 #include <gst/gst.h>
 
-#include "gendc.h"
 #include "gstgendcparse.h"
 
-GST_DEBUG_CATEGORY_STATIC(gendcparse_debug);
-#define GST_CAT_DEFAULT gendcparse_debug
+GST_DEBUG_CATEGORY_STATIC (gst_gendc_separator_debug);
+#define GST_CAT_DEFAULT gst_gendc_separator_debug
 
-static void gst_gendcparse_dispose(GObject* object);
+#define COMPONENT_COUNT_OFFSET 52
+#define COMPONENT_COUNT_SIZE 4
+#define COMPONENT_OFFSET_OFFSET 56
 
-static GstFlowReturn gst_gendcparse_chain(GstPad* pad, GstObject* parent, GstBuffer* buf);
-static gboolean gst_gendcparse_sink_event(GstPad* pad, GstObject* parent, GstEvent* event);
-static gboolean gst_gendcparse_srcpad_event(GstPad* pad, GstObject* parent, GstEvent* event);
-
-static void gst_gendcparse_set_property(GObject* object, guint prop_id, const GValue* value, GParamSpec* pspec);
-static void gst_gendcparse_get_property(GObject* object, guint prop_id, GValue* value, GParamSpec* pspec);
+#define DESCRIPTOR_SIZE_OFFSET 48
+#define DESCRIPTOR_SIZE_SIZE 4
 
 /* Filter signals and args */
-enum {
+enum
+{
   /* FILL ME */
   LAST_SIGNAL
 };
 
-enum {
-  PROP_0
+enum
+{
+  PROP_0,
+  PROP_SILENT
 };
-static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE("sink",
-                                                                   GST_PAD_SINK,
-                                                                   GST_PAD_ALWAYS,
-                                                                   GST_STATIC_CAPS("ANY"));
-// TODO create caps for src_descriptor and data
-static GstStaticPadTemplate src_descriptor_factory = GST_STATIC_PAD_TEMPLATE("src_descriptor",
-                                                                             GST_PAD_SRC,
-                                                                             GST_PAD_ALWAYS,
-                                                                             GST_STATIC_CAPS("ANY"));
-static GstStaticPadTemplate src_component_factory  = GST_STATIC_PAD_TEMPLATE("src_component_%u",
-                                                                             GST_PAD_SRC,
-                                                                             GST_PAD_REQUEST, // pad availability (on request)
-                                                                             GST_STATIC_CAPS("ANY"));
 
-#define DEBUG_INIT \
-  GST_DEBUG_CATEGORY_INIT(gendcparse_debug, "gendcparse", 0, "GenDC data parser");
+/* the capabilities of the inputs and outputs.
+ *
+ * describe the real formats here.
+ */
+static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
+    GST_PAD_SINK,
+    GST_PAD_ALWAYS,
+    GST_STATIC_CAPS ("ANY")
+    );
 
-#define gst_gendcparse_parent_class parent_class
-G_DEFINE_TYPE(GstGenDCParse, gst_gendcparse, GST_TYPE_ELEMENT);
+// Two types of src pad: descriptor and components
+static GstStaticPadTemplate defalut_src_factory = GST_STATIC_PAD_TEMPLATE ("src",
+    GST_PAD_SRC,
+    GST_PAD_ALWAYS,
+    GST_STATIC_CAPS ("ANY")
+    );
 
-GST_ELEMENT_REGISTER_DEFINE(gendcparse, "gendc-parse", GST_RANK_NONE, GST_TYPE_GENDCPARSE);
+static GstStaticPadTemplate component_src_factory = GST_STATIC_PAD_TEMPLATE ("component_src%u",
+    GST_PAD_SRC,
+    GST_PAD_SOMETIMES,
+    GST_STATIC_CAPS ("ANY")
+    );
 
-/* initialize the gendcparse's class */
+static gint num_acrual_src_component_pad = 0;
+
+#define gst_gendc_separator_parent_class parent_class
+G_DEFINE_TYPE (GstGenDCSeparator, gst_gendc_separator, GST_TYPE_ELEMENT);
+
+GST_ELEMENT_REGISTER_DEFINE (gendc_separator, "gendcseparator", GST_RANK_NONE,
+    GST_TYPE_GENDCSEPARATOR);
+
+static void gst_gendc_separator_set_property (GObject * object,
+    guint prop_id, const GValue * value, GParamSpec * pspec);
+static void gst_gendc_separator_get_property (GObject * object,
+    guint prop_id, GValue * value, GParamSpec * pspec);
+
+static gboolean gst_gendc_separator_sink_event (GstPad * pad,
+    GstObject * parent, GstEvent * event);
+static GstFlowReturn gst_gendc_separator_chain (GstPad * pad,
+    GstObject * parent, GstBuffer * buf);
+
+/* GObject vmethod implementations */
+
+/* initialize the gendcseparator's class */
 static void
-gst_gendcparse_class_init(GstGenDCParseClass* klass) {
-  GstElementClass* gstelement_class;
-  GObjectClass* gobject_class;
+gst_gendc_separator_class_init (GstGenDCSeparatorClass * klass)
+{
+  GObjectClass *gobject_class;
+  GstElementClass *gstelement_class;
 
-  gstelement_class = (GstElementClass*)klass;
-  gobject_class    = (GObjectClass*)klass;
+  gobject_class = (GObjectClass *) klass;
+  gstelement_class = (GstElementClass *) klass;
 
-  parent_class = g_type_class_peek_parent(klass);
+  gobject_class->set_property = gst_gendc_separator_set_property;
+  gobject_class->get_property = gst_gendc_separator_get_property;
 
-  gobject_class->dispose = gst_gendcparse_dispose;
+  g_object_class_install_property (gobject_class, PROP_SILENT,
+      g_param_spec_boolean ("silent", "Silent", "Produce verbose output ?",
+      FALSE, G_PARAM_READWRITE));
 
-  gobject_class->set_property = gst_gendcparse_set_property;
-  gobject_class->get_property = gst_gendcparse_get_property;
+  gst_element_class_set_details_simple (gstelement_class,
+      "GenDCSeparator",
+      "Demuxer",
+      "Parse GenDC binary data and split it into each component", "momoko.kono@fixstars.com");
 
-  // gstelement_class->change_state = gst_gendcparse_change_state;
-  // gstelement_class->send_event   = gst_gendcparse_send_event;
-
-  gst_element_class_add_pad_template(gstelement_class, gst_static_pad_template_get(&src_component_factory)); // TODO Need list
-  gst_element_class_add_pad_template(gstelement_class, gst_static_pad_template_get(&src_descriptor_factory));
-  gst_element_class_add_pad_template(gstelement_class, gst_static_pad_template_get(&sink_factory));
-
-  gst_element_class_set_static_metadata(gstelement_class,
-                                        "GenDC data Parser",
-                                        "Filter/Converter",
-                                        "Parse gendc data in descriptor and components",
-                                        "your name <your.name@your.isp>");
+  gst_element_class_add_pad_template (gstelement_class, gst_static_pad_template_get (&defalut_src_factory));
+  gst_element_class_add_pad_template (gstelement_class, gst_static_pad_template_get (&component_src_factory));
+  gst_element_class_add_pad_template (gstelement_class, gst_static_pad_template_get (&sink_factory));
 }
 
-static GstPad* gst_gendcparse_ensure_src_pad(GstGenDCParse* gendcparse, const gchar* name) {
-  GstPad* pad = gst_element_get_static_pad(GST_ELEMENT(gendcparse), name);
-  if (!pad) {
-    // Pad doesn't exist, create it
-    pad                           = gst_pad_new_from_static_template(&src_component_factory, name);
-    gendcparse->src_component_pad = g_list_append(gendcparse->src_component_pad, pad);
-    gst_pad_set_active(pad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(gendcparse), pad);
-    // You might want to connect signal handlers here, e.g., for pad queries or events
+static GstPad*
+gst_gendc_separator_init_component_src_pad(GstGenDCSeparator * filter, const gchar* component_pad_name){
+
+  GstPad* pad = gst_element_get_static_pad(GST_ELEMENT(filter), component_pad_name);
+
+  if (!pad){
+    g_print("%s does not exist\n", component_pad_name);
+
+    pad = gst_pad_new_from_static_template (&component_src_factory, component_pad_name);
+    GST_PAD_SET_PROXY_CAPS (pad);
+    gst_element_add_pad (GST_ELEMENT (filter), pad);
+    filter->component_src_pads = g_list_append(filter->component_src_pads, pad);
   }
-  return pad; // Remember to unref this outside this function if you're done with it
-}
-static gboolean is_dynamically_created_pad(GstPad* pad) {
-  const gchar* name = GST_PAD_NAME(pad);
-  // dynamic pads start with "src_component_"
-  return g_str_has_prefix(name, "src_component_");
-}
-
-static void gst_gendcparse_cleanup_dynamic_pads(GstGenDCParse* gendcparse) {
-  GList *pads, *pad;
-
-  pads = GST_ELEMENT_PADS(gendcparse);
-  for (pad = pads; pad; pad = pad->next) {
-    GstPad* current_pad = GST_PAD(pad->data);
-    if (is_dynamically_created_pad(current_pad)) {
-      gst_pad_set_active(current_pad, FALSE);
-      gst_element_remove_pad(GST_ELEMENT(gendcparse), current_pad);
-    }
-  }
-  g_list_free(pads);
-}
-
-static void
-gst_gendcparse_reset(GstGenDCParse* gendc) {
-  gendc->state = GST_GENDCPARSE_START;
-
-  if (gendc->container_descriptor) {
-    destroy_container_descriptor(gendc->container_descriptor);
-  }
-  gendc->container_descriptor      = NULL;
-  gendc->container_descriptor_size = 0;
-  gendc->container_data_size       = 0;
-
-  for (GList* l = gendc->components; l != NULL; l = l->next) {
-    destroy_component_header(l->data);
-  }
-  g_list_free(gendc->components);
-  gendc->component_count = 0;
+  return pad;
 }
 
 static void
-gst_gendcparse_dispose(GObject* object) {
-  GstGenDCParse* gendc = GST_GENDCPARSE(object);
+gst_gendc_separator_init (GstGenDCSeparator * filter)
+{
+  filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink");
+  gst_pad_set_event_function (filter->sinkpad, GST_DEBUG_FUNCPTR (gst_gendc_separator_sink_event));
+  gst_pad_set_chain_function (filter->sinkpad, GST_DEBUG_FUNCPTR (gst_gendc_separator_chain));
+  GST_PAD_SET_PROXY_CAPS (filter->sinkpad);
+  gst_element_add_pad (GST_ELEMENT (filter), filter->sinkpad);
 
-  GST_DEBUG_OBJECT(gendc, "GenDC: Dispose");
-  gst_gendcparse_reset(gendc);
+  filter->srcpad = gst_pad_new_from_static_template (&defalut_src_factory, "src");
+  GST_PAD_SET_PROXY_CAPS (filter->srcpad);
+  gst_element_add_pad (GST_ELEMENT (filter), filter->srcpad);
 
-  G_OBJECT_CLASS(parent_class)->dispose(object);
+  filter->isGenDC = FALSE;
+  // filter->num_valid_component = 0;
+  filter->silent = TRUE;
 }
 
-gboolean gst_gendcparse_sink_event(GstPad* pad, GstObject* parent, GstEvent* event) {
-  GstGenDCParse* gendcparse;
-  gboolean ret = FALSE;
-  gendcparse   = GST_GENDCPARSE(parent);
+static void
+gst_gendc_separator_set_property (GObject * object, guint prop_id, const GValue * value, GParamSpec * pspec)
+{
+  GstGenDCSeparator *filter = GST_GENDCSEPARATOR (object);
 
-  GST_LOG_OBJECT(gendcparse, "Received %s event: %" GST_PTR_FORMAT, GST_EVENT_TYPE_NAME(event), event);
+  switch (prop_id) {
+    case PROP_SILENT:
+      filter->silent = g_value_get_boolean (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
 
-  switch (GST_EVENT_TYPE(event)) {
-    case GST_EVENT_CAPS: {
-      GstCaps* caps;
+static void
+gst_gendc_separator_get_property (GObject * object, guint prop_id, GValue * value, GParamSpec * pspec)
+{
+  GstGenDCSeparator *filter = GST_GENDCSEPARATOR (object);
 
-      gst_event_parse_caps(event, &caps);
+  switch (prop_id) {
+    case PROP_SILENT:
+      g_value_set_boolean (value, filter->silent);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+/* this function handles sink events */
+static gboolean
+gst_gendc_separator_sink_event (GstPad * pad, GstObject * parent,
+    GstEvent * event)
+{
+  GstGenDCSeparator *filter;
+  gboolean ret;
+
+  filter = GST_GENDCSEPARATOR (parent);
+
+  GST_LOG_OBJECT (filter, "Received %s event: %" GST_PTR_FORMAT,
+      GST_EVENT_TYPE_NAME (event), event);
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_CAPS:
+    {
+      GstCaps *caps;
+
+      gst_event_parse_caps (event, &caps);
       /* do something with the caps */
 
       /* and forward */
-      ret = gst_pad_event_default(pad, parent, event);
+      ret = gst_pad_event_default (pad, parent, event);
       break;
     }
     default:
-      ret = gst_pad_event_default(pad, parent, event);
+      ret = gst_pad_event_default (pad, parent, event);
       break;
   }
   return ret;
 }
 
-static void
-gst_gendcparse_init(GstGenDCParse* gendcparse) {
-  gendcparse->sinkpad = gst_pad_new_from_static_template(&sink_factory, "sink");
-  gst_pad_set_chain_function(gendcparse->sinkpad, GST_DEBUG_FUNCPTR(gst_gendcparse_chain));
-  gst_pad_set_event_function(gendcparse->sinkpad, GST_DEBUG_FUNCPTR(gst_gendcparse_sink_event));
-  GST_PAD_SET_PROXY_CAPS(gendcparse->sinkpad);
-  gst_element_add_pad(GST_ELEMENT(gendcparse), gendcparse->sinkpad);
-
-  gendcparse->src_descriptor_pad = gst_pad_new_from_static_template(&src_descriptor_factory, "src_descriptor");
-
-  gst_pad_use_fixed_caps(gendcparse->src_descriptor_pad);
-  // gst_pad_set_query_function(gendcparse->src_descriptor_pad, GST_DEBUG_FUNCPTR(gst_gendcparse_pad_query));
-  // gst_pad_set_event_function(gendcparse->src_descriptor_pad, GST_DEBUG_FUNCPTR(gst_gendcparse_srcpad_event));
-  GST_PAD_SET_PROXY_CAPS(gendcparse->src_descriptor_pad);
-  gst_element_add_pad(GST_ELEMENT_CAST(gendcparse), gendcparse->src_descriptor_pad);
-
-}
-
-static gboolean
-gst_gendcparse_validate_input(GstGenDCParse* element, GstBuffer* buf, guint64 min_size) {
-  // Check if valid genDC data
-
-  // 1. Should Have signature Signature = “GNDC”
-  // 2. A GenDC Container must always contain at least one Component Header
-  gboolean valid = FALSE;
-  guint32 type   = 0;
-
-  GstMapInfo info;
-
-  g_return_val_if_fail(buf != NULL, FALSE);
-
-  gst_buffer_map(buf, &info, GST_MAP_READ);
-
-  if (info.size < min_size)
-    goto too_small;
-
-  if (!is_gendc_format(info.data))
-    goto not_gendc;
-
-  if (!is_valid_container(info.data))
-    goto not_gendc;
-
-  return TRUE;
-
-  /* ERRORS */
-too_small : {
-  GST_ELEMENT_ERROR(element, STREAM, WRONG_TYPE, (NULL),
-                    ("Not enough data to parse GENDC header (%" G_GSIZE_FORMAT " available,"
-                     " %d needed)",
-                     info.size, min_size));
-  gst_buffer_unmap(buf, &info);
-  gst_buffer_unref(buf);
-  return FALSE;
-}
-not_gendc : {
-  GST_ELEMENT_ERROR(element, STREAM, WRONG_TYPE, (NULL),
-                    ("Data is not a GenDC format : 0x%" G_GINT32_MODIFIER "x", type));
-  gst_buffer_unmap(buf, &info);
-  gst_buffer_unref(buf);
-  return FALSE;
-}
-}
-
-static gboolean
-gst_gendcparse_validate_component(GstGenDCParse* element, gpointer* buf, guint64 min_size) {
-  // Check if valid genDC data
-
-  // 1. Should Have  HeaderType = “GDC_COMPONENT_HEADER”
-  // 2. A GenDC Component must contain at least one Part Header.
-  gboolean valid = FALSE;
-  guint32 type   = 0;
-
-  GstMapInfo info;
-
-  g_return_val_if_fail(buf != NULL, FALSE);
-
-  if (!is_component_format(buf))
-    goto not_gendc;
-
-  if (!is_valid_component(buf))
-    goto not_gendc;
-
-  return TRUE;
-
-not_gendc : {
-  GST_ELEMENT_ERROR(element, STREAM, WRONG_TYPE, (NULL),
-                    ("Data is not a GenDC component format : 0x%" G_GINT32_MODIFIER "x", type));
-  return FALSE;
-}
-}
-
-static void
-gst_gendcparse_set_property(GObject* object, guint prop_id,
-                            const GValue* value, GParamSpec* pspec) {
-  GstGenDCParse* self;
-
-  g_return_if_fail(GST_IS_GENDCPARSE(object));
-  self = GST_GENDCPARSE(object);
-
-  switch (prop_id) {
-    case PROP_0:
-      break;
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
-      break;
+gboolean
+_is_gendc (GstMapInfo map, GstGenDCSeparator* filter){
+  if (*((guint32 *)map.data) == 0x43444E47){
+    filter->isGenDC = TRUE;
+    filter->isDescriptor = TRUE;
+    return TRUE;
   }
+  filter->isGenDC = FALSE;
+  filter->isDescriptor = FALSE;
+  return FALSE;
 }
 
-static void
-gst_gendcparse_get_property(GObject* object, guint prop_id,
-                            GValue* value, GParamSpec* pspec) {
-  GstGenDCParse* self;
+void
+_get_valid_component_offset(GstMapInfo map, GstGenDCSeparator* filter){
+  guint32 component_count = *((guint32 *)(map.data + COMPONENT_COUNT_OFFSET));
+  for (guint i=0; i < component_count; ++i){
+    guint64 ith_component_offset = *((guint64 *)(map.data + COMPONENT_OFFSET_OFFSET + sizeof(guint64) * i));
+    // g_print("%d %lu\n", i, ith_component_offset);
+    gushort ith_component_flag  = *((gushort *)(map.data + ith_component_offset + 2));
+    if (ith_component_flag & 0x0001){
+      // invalid component
+      GST_DEBUG("%ith component exists but invalid.\n");
+    }else{
 
-  g_return_if_fail(GST_IS_GENDCPARSE(object));
-  self = GST_GENDCPARSE(object);
+      // assume part count is 1
+      guint64 partoffset = *((guint64 *)(map.data + ith_component_offset+ 48));
 
-  switch (prop_id) {
-    case PROP_0:
-      // g_value_set_boolean(value, self->silent);
-      break;
+      struct _ComponentInfo *this_component = g_new(struct _ComponentInfo, 1);
+      this_component->ith_valid_component = i;
+      this_component->dataoffset = *((guint64 *)(map.data + partoffset + 32));;
+      this_component->datasize = *((guint64 *)(map.data + partoffset + 24));;
+      this_component->is_available_component = g_list_length(filter->component_info) == 0 ? TRUE : FALSE; 
 
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
-      break;
+      GST_DEBUG("Added %u component with partoffset %lu data offset %lu data size is %lu\n", this_component->ith_valid_component, partoffset, this_component->dataoffset, this_component->datasize);
+
+      filter->component_info = g_list_append(filter->component_info, this_component);
+    }
   }
+  // return filter->num_valid_component;
 }
+
+GstBuffer * _generate_descriptor_buffer(GstMapInfo map, GstGenDCSeparator* filter){
+  filter->descriptor_size = *(guint32 *)(map.data + 48);
+  GST_DEBUG("Descriptor size is %u\n", filter->descriptor_size);
+
+  if (map.size >= filter->descriptor_size){
+    filter->isDescriptor = FALSE;
+  }else{
+    filter->descriptor_size = filter->descriptor_size - map.size;
+  }
+
+  GstBuffer *descriptor_buf = gst_buffer_new_allocate (NULL, filter->descriptor_size, NULL);
+  gst_buffer_fill (descriptor_buf, 0, map.data, filter->descriptor_size);
+  return descriptor_buf;
+}
+
 
 static GstFlowReturn
-gst_gendcparse_chain(GstPad* pad, GstObject* parent, GstBuffer* buf) {
-  GstGenDCParse* gendcparse;
+gst_gendc_separator_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
+{
+  GstGenDCSeparator *filter  = GST_GENDCSEPARATOR (parent);
+  GstMapInfo map;
 
-  gendcparse = GST_GENDCPARSE(parent);
-
-  guint min_valid_components = 1;
-  guint min_size             = 56 + 8 * min_valid_components; // ToDO
-  guint64 offset             = 0;                             // We are assuming file input is complete, not segment
-
-  guint min_valid_parts    = 1;
-  guint min_component_size = 48 + 8 * min_valid_parts; // ToDO
-
-  if (!gst_gendcparse_validate_input(gendcparse, buf, min_size)) {
+  if (!gst_buffer_map(buf, &map, GST_MAP_READ)){
     return GST_FLOW_ERROR;
   }
 
-  // Divide buffer into container descriptor (ptr,size) and container data (ptr,size)
-
-  // Descriptor
-  GstMapInfo info;
-  gst_buffer_map(buf, &info, GST_MAP_READ);
-
-  gendcparse->container_descriptor      = create_container_descriptor(info.data);
-  gendcparse->container_descriptor_size = get_descriptor_size(gendcparse->container_descriptor);
-
-  gpointer container_data         = info.data + gendcparse->container_descriptor_size;
-  gendcparse->container_data_size = get_data_size(gendcparse->container_descriptor);
-
-  // Create and push a new buffer for the container descriptor
-  GstBuffer* descriptor_buffer = gst_buffer_new_wrapped(info.data, gendcparse->container_descriptor_size);
-  GstMapInfo descriptor_info;
-  gst_buffer_map(descriptor_buffer, &descriptor_info, GST_MAP_WRITE);
-  memcpy(descriptor_info.data, info.data, gendcparse->container_descriptor_size);
-  gst_buffer_unmap(descriptor_buffer, &descriptor_info);
-  gst_pad_push(gendcparse->src_descriptor_pad, descriptor_buffer);
-
-  // Divide container data into components
-
-  gendcparse->component_count   = get_component_count(gendcparse->container_descriptor);
-  gpointer component_data       = container_data;
-  guint64 component_data_offset = 0;
-  guint64 total_offset           = gendcparse->container_descriptor_size;
-  for (guint64 i = 0; i < gendcparse->component_count; i++) {
-    gpointer component_header = get_component_header(gendcparse->container_descriptor, i);
-    gendcparse->components    = g_list_append(gendcparse->components, component_header);
-
-    if (!gst_gendcparse_validate_component(gendcparse, component_header, min_component_size)) {
+  // only the first buffer of the payload
+  if (GST_BUFFER_FLAG_IS_SET(buf, GST_BUFFER_FLAG_DISCONT)){
+    // remove later ==========================================
+    filter-> test_total = 0;
+    // =======================================================
+    filter->accum_cursor = 0;
+    
+    if (map.size < sizeof(guint32)){
+      gst_buffer_unmap(buf, &map);
       return GST_FLOW_ERROR;
     }
+    // Check GenDC; TODO: replace it with GenDC separator API
+    if (_is_gendc(map, filter)){
+      // copy descriptor
+      if (map.size < DESCRIPTOR_SIZE_OFFSET + DESCRIPTOR_SIZE_SIZE ){
+        // ============================================================================
+        //
+        // TODO: if map size in the discont flag buffer is smaller than descriptor size
+        //
+        // ============================================================================
+        filter->accum_cursor += map.size;
+        gst_buffer_unmap(buf, &map);
+        return GST_FLOW_OK;
+      } else {
+        // get component info
+        _get_valid_component_offset(map, filter); 
 
-    component_data              = info.data + total_offset;
-    component_data_offset       = get_component_data_offset(component_header);
-    guint64 component_data_size = get_component_data_size(component_header);
-    total_offset                 = total_offset + component_data_size;
+        // get descriptor
+        GstBuffer *descriptor_buf = _generate_descriptor_buffer(map, filter);
+        gst_pad_push (filter->srcpad, descriptor_buf);
+      }
+    }
 
-    // create pad
-    gchar* pad_name       = g_strdup_printf("src_component_%u", i); // Create a unique pad name
-    GstPad* component_pad = gst_gendcparse_ensure_src_pad(gendcparse, pad_name);
-    g_free(pad_name);
+  } else if (filter->isGenDC && filter->isDescriptor){
+    // ============================================================================
+    //
+    // TODO: if map size in the discont flag buffer is smaller than descriptor size
+    //
+    // ============================================================================
 
-    // Create and push a new buffer for the components
-    GstBuffer* component_buffer = gst_buffer_new_wrapped(component_data, component_data_size);
-    GstMapInfo component_info;
-    gst_buffer_map(component_buffer, &component_info, GST_MAP_WRITE);
-    memcpy(component_info.data, info.data, component_data_size);
-    gst_buffer_unmap(component_buffer, &component_info);
-    gst_pad_push(component_pad, component_buffer);
-    // gst_object_unref(component_pad);
+    // ============================================================================
+    //
+    // TODO: check GST_BUFFER_FLAG_DISCONT validity
+    //
+    // ============================================================================
+  // } else if (filter->test_total >= 307200){
+  //   // g_print("test total is oveflow\n");
+  //   return GST_FLOW_OK;
+  // // }
   }
 
+  // in the case it is not GenDC
+  if (!filter->isGenDC){
+    gst_buffer_unmap(buf, &map);
+    return gst_pad_push (filter->srcpad, buf);
+  }
+
+  GList* current_cmp_info = filter->component_info;
+  guint32 current_map_size = 0;
+  while(current_cmp_info){
+    struct _ComponentInfo *info = (struct _ComponentInfo *)current_cmp_info->data;
+
+    if (info->is_available_component){
+      gchar* pad_name = g_strdup_printf("component_src%u", info->ith_valid_component); 
+      GstPad* comp_pad = gst_gendc_separator_init_component_src_pad(filter, pad_name);
+      g_free(pad_name);
+
+      if (map.size < info->dataoffset + info->datasize){
+        guint32 size_of_copy = map.size - info->dataoffset;
+        GstBuffer *this_comp_buffer = gst_buffer_new_allocate (NULL, size_of_copy, NULL);
+
+        // remove later ==========================================
+        filter-> test_total += size_of_copy;
+        // =======================================================
+
+        gst_buffer_fill (this_comp_buffer, 0, map.data + info->dataoffset, size_of_copy);
+        gst_pad_push (comp_pad, this_comp_buffer);
+
+        info->dataoffset = 0;
+        info->datasize -= size_of_copy;
+
+        // filter->accum_cursor += map.size;
+        // gst_buffer_unmap(buf, &map);
+        break;
+      }else if (map.size >= info->dataoffset + info->datasize){
+
+        GstBuffer *this_comp_buffer = gst_buffer_new_allocate (NULL, info->datasize, NULL);
+        gst_buffer_fill (this_comp_buffer, 0, map.data + info->dataoffset, info->datasize);
+
+        GstFlowReturn ret = gst_pad_push (comp_pad, this_comp_buffer);
+
+        filter-> test_total += info->datasize;
+        info->is_available_component = FALSE;
+
+        current_cmp_info = current_cmp_info->next;
+        if (current_cmp_info){
+          info = (struct _ComponentInfo *)current_cmp_info->data;
+          info->is_available_component = TRUE;
+          info->dataoffset -= filter->accum_cursor;
+        }else{
+          break;
+        }
+      }
+    }
+  }
+  filter->accum_cursor += map.size;
+  //g_print("total image %lu, total map size %lu\n", filter->test_total, filter->accum_cursor);
+  gst_buffer_unmap(buf, &map);
   return GST_FLOW_OK;
 }
 
 static gboolean
-gendcparse_init(GstPlugin* plugin) {
-  GST_DEBUG_CATEGORY_INIT(gendcparse_debug, "gendcparse",
-                          0, "Parse GenDC data");
-
-  return GST_ELEMENT_REGISTER(gendcparse, plugin);
+gendcseparator_init (GstPlugin * gendcseparator)
+{
+  // GST_DEBUG_CATEGORY_INIT (gst_gendc_separator_debug, "gendcseparator", 0, "Template gendcseparator");
+  // return GST_ELEMENT_REGISTER (gendc_separator, gendcseparator);
+  return gst_element_register (gendcseparator, "gendcseparator", GST_RANK_NONE, GST_TYPE_GENDCSEPARATOR);
 }
 
-GST_PLUGIN_DEFINE(
-    GST_VERSION_MAJOR,
-    GST_VERSION_MINOR,
-    gendcparse,
-    "Parse gendc data to decriptor and componets",
-    gendcparse_init,
-    PACKAGE_VERSION,
-    GST_LICENSE,
-    GST_PACKAGE_NAME,
-    GST_PACKAGE_ORIGIN)
+#ifndef PACKAGE
+#define PACKAGE "gendcseparator"
+#endif
+
+/* gstreamer looks for this structure to register gendcseparators
+ *
+ * exchange the string 'Template gendcseparator' with your gendcseparator description
+ */
+GST_PLUGIN_DEFINE (
+  GST_VERSION_MAJOR,
+  GST_VERSION_MINOR,
+  gendcseparator,       //plugin's symbol name
+  "GenDC Separator",    //plugin's name
+  gendcseparator_init,  //plugin's init funtion's name
+  PACKAGE_VERSION, 
+  GST_LICENSE, 
+  GST_PACKAGE_NAME, 
+  GST_PACKAGE_ORIGIN)

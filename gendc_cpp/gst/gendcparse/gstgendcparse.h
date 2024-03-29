@@ -4,7 +4,7 @@
  * Copyright (C) 2005 Ronald S. Bultje <rbultje@ronald.bitfreak.net>
  * Copyright (C) 2020 Niels De Graef <niels.degraef@gmail.com>
  * Copyright (C) 2024  <<user@hostname.org>>
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -17,7 +17,7 @@
  *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A GENDCICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
  * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
@@ -35,7 +35,7 @@
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A GENDCICULAR PURPOSE.  See the GNU
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Library General Public License for more details.
  *
  * You should have received a copy of the GNU Library General Public
@@ -44,47 +44,45 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#ifndef __GST_GENDCPARSE_H__
-#define __GST_GENDCPARSE_H__
+#ifndef __GST_GENDCSEPARATOR_H__
+#define __GST_GENDCSEPARATOR_H__
 
 #include <gst/gst.h>
 
 G_BEGIN_DECLS
 
-/* Standard macros for defining types for this element.  */
-#define GST_TYPE_GENDCPARSE (gst_gendcparse_get_type())
+#define GST_TYPE_GENDCSEPARATOR (gst_gendc_separator_get_type())
+G_DECLARE_FINAL_TYPE (GstGenDCSeparator, gst_gendc_separator,
+    GST, GENDCSEPARATOR, GstElement)
 
-G_DECLARE_FINAL_TYPE(GstGenDCParse, gst_gendcparse, GST, GENDCPARSE, GstElement)
-//G_DECLARE_DERIVABLE_TYPE(GstGenDCParse, gst_gendcparse, GST, GENDCPARSE, GstElement)
-
-typedef enum {
-  GST_GENDCPARSE_START,
-  GST_GENDCPARSE_HEADER,
-  GST_GENDCPARSE_DATA
-} GstGenDCParseState;
-
-struct _GstGenDCParse {
-  GstElement element;
-  // GstStructure s;
-
-  GstPad *sinkpad;
-  GstPad *src_descriptor_pad;
-  GList *src_component_pad;
-
-  // Stream
-  GstGenDCParseState state;
-
-  // descriptor
-  gpointer container_descriptor;
-  guint64 container_descriptor_size;
-  guint64 container_data_size;
-
-  // components
-  guint64 component_count;
-  GList *components;
+struct _ComponentInfo
+{
+  guint32 ith_valid_component;
+  guint64 dataoffset;
+  guint64 datasize; 
+  gboolean is_available_component;
 };
 
-GST_ELEMENT_REGISTER_DECLARE(gendc_parse)
+
+struct _GstGenDCSeparator
+{
+  GstElement element;
+
+  GstPad *sinkpad, *srcpad;
+  gboolean silent;
+
+  GList *component_src_pads;
+  GList * component_info;
+
+  gboolean isGenDC;
+  gboolean isDescriptor;
+  guint32 descriptor_size;
+
+  guint64 test_total;
+  guint64 accum_cursor;
+};
+
+
 G_END_DECLS
 
-#endif /* __GST_GENDCPARSE_H__ */
+#endif /* __GST_GENDCSEPARATOR_H__ */

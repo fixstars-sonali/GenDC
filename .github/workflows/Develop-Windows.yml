@@ -1,0 +1,56 @@
+name:  Build, Test
+
+on:
+  push:
+    branches:
+      - '*'  # This will run the build and test jobs for every push on all branches
+
+  pull_request:
+    branches:
+      - '*'  # This will run the build and test jobs for pull requests to all branches
+
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v4.7.1
+        with:
+         python-version: "3.11.4"
+         
+      - name : Install pkgconfig
+        run : |
+         choco install pkgconfiglite -y
+         
+      - name: Install requirements
+        run: |
+         python -m pip install -r .\requirement.txt 
+
+      - name: Disable Perl (remove from PATH)
+        run: choco uninstall strawberryperl -n
+
+      - name: Checkout repository
+        uses: actions/checkout@v4.1.1
+        with:
+          submodules: recursive
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+            # This one is not needed, as it is the default value anyway.
+            # vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+            vcpkgJsonGlob: '**/gendc_cpp/vcpkg.json'
+
+      - name: meson setup
+        working-directory: gendc_cpp
+        run: |
+         $PKG_CONFIG_PATH="${{ github.workspace }}\vcpkg_installed\x64-windows\lib\pkgconfig"
+         meson setup ../build -Dtests=enabled --pkg-config-path="${{ github.workspace }}\vcpkg_installed\x64-windows\lib\pkgconfig" 
+      
+      - name: meson install
+        working-directory: build
+        run: |
+         $PKG_CONFIG_PATH="${{ github.workspace }}\vcpkg_installed\x64-windows\lib\pkgconfig"
+         meson install 

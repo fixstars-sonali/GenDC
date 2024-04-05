@@ -1,5 +1,10 @@
-if not get_option('tests').disabled() and gstcheck_dep.found()
-  subdir('check')
+if not get_option('tests').disabled()
+  if host_machine.system() == 'linux'  and gstcheck_dep.found()
+    subdir('check')
+  else
+    subdir('check')
+  endif
+
 endif
 
 ## TODO

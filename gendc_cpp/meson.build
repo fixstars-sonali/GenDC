@@ -119,9 +119,13 @@ fallback : ['gstreamer', 'gst_dep'])
 
 gstbase_dep = dependency('gstreamer-base-1.0',
   fallback : ['gstreamer', 'gst_base_dep'])
-gstcheck_dep = dependency('gstreamer-check-1.0',
-  required : get_option('tests'),
-  fallback : ['gstreamer', 'gst_check_dep'])
+if host_machine.system() == 'linux'
+  gstcheck_dep = dependency('gstreamer-check-1.0',
+    required : get_option('tests'),
+    fallback : ['gstreamer', 'gst_check_dep'])
+else
+  gstcheck_dep = [] 
+endif
 libm = cc.find_library('m', required : false)
 
 
@@ -135,9 +139,11 @@ subdir('gst')
 
 ## TODO
 ## Find Check using dependency function
-check_dep = dependency('check', required : false)
-if not check_dep.found()
-   check_dep = cc.find_library('check', required : true)
+if host_machine.system() == 'linux'
+  check_dep = dependency('check', required : false)
+  if not check_dep.found()
+    check_dep = cc.find_library('check', required : true)
+  endif
 endif
 subdir('tests')
 

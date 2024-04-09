@@ -1,0 +1,38 @@
+name: Build
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          pip install -r requirement.txt 
+          sudo apt update
+          sudo apt install python3 libusb-1.0-0-dev gobject-introspection valgrind libgstreamer-plugins-bad1.0-dev libgtk-3-dev libgirepository1.0-dev python3-gi libunwind-dev gettext
+      - name: Build
+        working-directory: gendc_cpp
+        run: |
+          meson setup --prefix ${{ github.workspace}}/install build
+          cd build
+          ninja install
+      - name: Archive Release
+        uses: thedoctor0/zip-release@0.7.5
+        with:
+          type: 'zip'
+          filename: 'linux-gst-plugin.zip'
+          directory: ${{ github.workspace}}/install
+      # - name: Upload Release
+      #   uses: ncipollo/release-action@v1.12.0
+      #   with:
+      #     artifacts: 'linux-gst-plugin.zip'
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+  
+
+
+    

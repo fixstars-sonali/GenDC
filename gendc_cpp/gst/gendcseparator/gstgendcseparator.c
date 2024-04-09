@@ -118,12 +118,14 @@ gst_gendcseparator_init_component_src_pad(GstGenDCSeparator * filter, const gcha
   GstPad* pad = gst_element_get_static_pad(GST_ELEMENT(filter), component_pad_name);
 
   if (!pad){
-    g_print("%s does not exist\n", component_pad_name);
+    GST_DEBUG("%s does not exist\n", component_pad_name);
 
     pad = gst_pad_new_from_static_template (&component_src_factory, component_pad_name);
     GST_PAD_SET_PROXY_CAPS (pad);
     gst_element_add_pad (GST_ELEMENT (filter), pad);
     filter->component_src_pads = g_list_append(filter->component_src_pads, pad);
+  } else {
+    GST_DEBUG("%s already exists\n", component_pad_name);
   }
   return pad;
 }
@@ -141,9 +143,12 @@ gst_gendcseparator_init (GstGenDCSeparator * filter)
   GST_PAD_SET_PROXY_CAPS (filter->srcpad);
   gst_element_add_pad (GST_ELEMENT (filter), filter->srcpad);
 
+  filter->component_src_pads=NULL;
   filter->isGenDC = FALSE;
-  // filter->num_valid_component = 0;
+  filter->framecount = 0;
   filter->silent = TRUE;
+  filter->head = TRUE;
+  filter->fistrun = TRUE;
 }
 
 static void
@@ -211,12 +216,12 @@ gst_gendcseparator_sink_event (GstPad * pad, GstObject * parent,
 gboolean
 _is_gendc (GstMapInfo map, GstGenDCSeparator* filter){
   if (*((guint32 *)map.data) == 0x43444E47){
-    filter->isGenDC = TRUE;
-    filter->isDescriptor = TRUE;
+    // filter->isGenDC = TRUE;
+    // filter->isDescriptor = TRUE;
     return TRUE;
   }
-  filter->isGenDC = FALSE;
-  filter->isDescriptor = FALSE;
+  // filter->isGenDC = FALSE;
+  // filter->isDescriptor = FALSE;
   return FALSE;
 }
 
@@ -225,11 +230,9 @@ _get_valid_component_offset(GstMapInfo map, GstGenDCSeparator* filter){
   guint32 component_count = *((guint32 *)(map.data + COMPONENT_COUNT_OFFSET));
   for (guint i=0; i < component_count; ++i){
     guint64 ith_component_offset = *((guint64 *)(map.data + COMPONENT_OFFSET_OFFSET + sizeof(guint64) * i));
-    // g_print("%d %lu\n", i, ith_component_offset);
     gushort ith_component_flag  = *((gushort *)(map.data + ith_component_offset + 2));
     if (ith_component_flag & 0x0001){
       // invalid component
-      GST_DEBUG("%ith component exists but invalid.\n");
     }else{
 
       // assume part count is 1
@@ -241,8 +244,6 @@ _get_valid_component_offset(GstMapInfo map, GstGenDCSeparator* filter){
       this_component->datasize = *((guint64 *)(map.data + partoffset + 24));;
       this_component->is_available_component = g_list_length(filter->component_info) == 0 ? TRUE : FALSE; 
 
-      GST_DEBUG("Added %u component with partoffset %lu data offset %lu data size is %lu\n", this_component->ith_valid_component, partoffset, this_component->dataoffset, this_component->datasize);
-
       filter->component_info = g_list_append(filter->component_info, this_component);
     }
   }
@@ -251,6 +252,7 @@ _get_valid_component_offset(GstMapInfo map, GstGenDCSeparator* filter){
 
 GstBuffer * _generate_descriptor_buffer(GstMapInfo map, GstGenDCSeparator* filter){
   filter->descriptor_size = *(guint32 *)(map.data + 48);
+  filter->container_size = (guint64)(filter->descriptor_size) + *(guint64 *)(map.data + 32);
   GST_DEBUG("Descriptor size is %u\n", filter->descriptor_size);
 
   if (map.size >= filter->descriptor_size){
@@ -275,114 +277,119 @@ gst_gendcseparator_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
     return GST_FLOW_ERROR;
   }
 
-  // only the first buffer of the payload
-  if (GST_BUFFER_FLAG_IS_SET(buf, GST_BUFFER_FLAG_DISCONT)){
-    // remove later ==========================================
-    filter-> test_total = 0;
-    // =======================================================
-    filter->accum_cursor = 0;
-    
-    if (map.size < sizeof(guint32)){
-      gst_buffer_unmap(buf, &map);
-      return GST_FLOW_ERROR;
-    }
-    // Check GenDC; TODO: replace it with GenDC separator API
-    if (_is_gendc(map, filter)){
-      // copy descriptor
-      if (map.size < DESCRIPTOR_SIZE_OFFSET + DESCRIPTOR_SIZE_SIZE ){
-        // ============================================================================
-        //
-        // TODO: if map size in the discont flag buffer is smaller than descriptor size
-        //
-        // ============================================================================
-        filter->accum_cursor += map.size;
-        gst_buffer_unmap(buf, &map);
-        return GST_FLOW_OK;
-      } else {
-        // get component info
-        _get_valid_component_offset(map, filter); 
-
-        // get descriptor
-        GstBuffer *descriptor_buf = _generate_descriptor_buffer(map, filter);
-        gst_pad_push (filter->srcpad, descriptor_buf);
-      }
-    }
-
-  } else if (filter->isGenDC && filter->isDescriptor){
-    // ============================================================================
-    //
-    // TODO: if map size in the discont flag buffer is smaller than descriptor size
-    //
-    // ============================================================================
-
-    // ============================================================================
-    //
-    // TODO: check GST_BUFFER_FLAG_DISCONT validity
-    //
-    // ============================================================================
-  // } else if (filter->test_total >= 307200){
-  //   // g_print("test total is oveflow\n");
-  //   return GST_FLOW_OK;
-  // // }
-  }
-
-  // in the case it is not GenDC
-  if (!filter->isGenDC){
+  if (map.size < sizeof(guint32)){
     gst_buffer_unmap(buf, &map);
-    return gst_pad_push (filter->srcpad, buf);
+    return GST_FLOW_ERROR;
   }
+
+  // Check GenDC; TODO: replace it with GenDC separator API
+  if (filter->head && _is_gendc(map, filter)){
+    filter->accum_cursor = 0;
+    filter->isGenDC = TRUE;
+    filter->isDescriptor = TRUE;
+
+    _get_valid_component_offset(map, filter); 
+
+    // get descriptor
+    GstBuffer *descriptor_buf = _generate_descriptor_buffer(map, filter);
+    gst_pad_push (filter->srcpad, descriptor_buf);
+
+    filter->isDescriptor = FALSE;
+    filter->head = FALSE;
+
+  } else if ( !filter->isGenDC){
+    gst_buffer_unmap(buf, &map);
+    return gst_pad_push (filter->srcpad, buf); 
+  }
+
 
   GList* current_cmp_info = filter->component_info;
   guint32 current_map_size = 0;
+  struct _ComponentInfo *info = (struct _ComponentInfo *)  current_cmp_info->data;
+
   while(current_cmp_info){
-    struct _ComponentInfo *info = (struct _ComponentInfo *)current_cmp_info->data;
+    gchar* pad_name = g_strdup_printf("component_src%u", info->ith_valid_component); 
+    GstPad* comp_pad = gst_gendcseparator_init_component_src_pad(filter, pad_name);
+    
 
-    if (info->is_available_component){
-      gchar* pad_name = g_strdup_printf("component_src%u", info->ith_valid_component); 
-      GstPad* comp_pad = gst_gendcseparator_init_component_src_pad(filter, pad_name);
-      g_free(pad_name);
+    if (filter->fistrun){
+      // gst_pad_push_data:<gendcseparator0:component_src0> Got data flow before stream-start event
+      GstEvent *event = gst_event_new_stream_start (pad_name);
+      gst_pad_push_event (comp_pad, gst_event_ref (event));
+      
+      // gst_pad_push_data:<gendcseparator0:component_src0> Got data flow before segment event
+      GstSegment segment;
+      GstClockTime start_time = GST_BUFFER_PTS(buf);
+      GstClockTime duration = GST_BUFFER_DURATION(buf);
+      gst_segment_init(&segment, GST_FORMAT_TIME);
+      segment.start = start_time;
+      segment.duration = duration;
+      segment.flags = GST_SEGMENT_FLAG_NONE;
+      GstEvent *segment_event = gst_event_new_segment(&segment);
+      gst_pad_push_event(comp_pad, segment_event);
 
-      if (map.size < info->dataoffset + info->datasize){
-        guint32 size_of_copy = map.size - info->dataoffset;
-        GstBuffer *this_comp_buffer = gst_buffer_new_allocate (NULL, size_of_copy, NULL);
-
-        // remove later ==========================================
-        filter-> test_total += size_of_copy;
-        // =======================================================
-
-        gst_buffer_fill (this_comp_buffer, 0, map.data + info->dataoffset, size_of_copy);
-        gst_pad_push (comp_pad, this_comp_buffer);
-
-        info->dataoffset = 0;
-        info->datasize -= size_of_copy;
-
-        // filter->accum_cursor += map.size;
-        // gst_buffer_unmap(buf, &map);
-        break;
-      }else if (map.size >= info->dataoffset + info->datasize){
-
-        GstBuffer *this_comp_buffer = gst_buffer_new_allocate (NULL, info->datasize, NULL);
-        gst_buffer_fill (this_comp_buffer, 0, map.data + info->dataoffset, info->datasize);
-
-        GstFlowReturn ret = gst_pad_push (comp_pad, this_comp_buffer);
-
-        filter-> test_total += info->datasize;
-        info->is_available_component = FALSE;
-
-        current_cmp_info = current_cmp_info->next;
-        if (current_cmp_info){
-          info = (struct _ComponentInfo *)current_cmp_info->data;
-          info->is_available_component = TRUE;
-          info->dataoffset -= filter->accum_cursor;
-        }else{
-          break;
-        }
-      }
+      filter->fistrun = FALSE;
     }
+    g_free(pad_name);
+
+    if (map.size < info->dataoffset + info->datasize){
+      guint32 size_of_copy = map.size - info->dataoffset;
+      GstBuffer *this_comp_buffer = gst_buffer_new_allocate (NULL, size_of_copy, NULL);
+      gst_buffer_fill (this_comp_buffer, 0, map.data + info->dataoffset, size_of_copy);
+      gst_pad_push (comp_pad, this_comp_buffer);
+
+      info->dataoffset = 0;
+      info->datasize -= size_of_copy;
+
+      filter->head = FALSE;
+      break; 
+    }else if (map.size > info->dataoffset + info->datasize){
+
+      GstBuffer *this_comp_buffer = gst_buffer_new_allocate (NULL, info->datasize, NULL);
+      gst_buffer_fill (this_comp_buffer, 0, map.data + info->dataoffset, info->datasize);
+      GstFlowReturn ret = gst_pad_push (comp_pad, this_comp_buffer);
+      info->is_available_component = FALSE;
+
+      GList * old_ptr = current_cmp_info;
+      current_cmp_info = current_cmp_info->next;
+      if (current_cmp_info){
+        info = (struct _ComponentInfo *)current_cmp_info->data;
+        info->is_available_component = TRUE;
+        info->dataoffset -= filter->accum_cursor;
+      }
+      g_list_remove (filter->component_info, old_ptr);
+    }else{
+
+      GstBuffer *this_comp_buffer = gst_buffer_new_allocate (NULL, info->datasize, NULL);
+      gst_buffer_fill (this_comp_buffer, 0, map.data + info->dataoffset, info->datasize);
+      GstFlowReturn ret = gst_pad_push (comp_pad, this_comp_buffer);
+      info->is_available_component = FALSE;
+
+      GList * old_ptr = current_cmp_info;
+      current_cmp_info = current_cmp_info->next;
+      if (current_cmp_info){
+        info = (struct _ComponentInfo *)current_cmp_info->data;
+        info->is_available_component = TRUE;
+        info->dataoffset -= filter->accum_cursor;
+      }
+      g_list_remove (filter->component_info, old_ptr);
+      break;
+    }
+    
   }
   filter->accum_cursor += map.size;
-  //g_print("total image %lu, total map size %lu\n", filter->test_total, filter->accum_cursor);
+
+
+  if (filter->accum_cursor >= filter->container_size){
+    filter->head = TRUE;
+    filter->framecount += 1;
+    filter->accum_cursor = 0;
+
+  } else if (! current_cmp_info){
+
+  }
   gst_buffer_unmap(buf, &map);
+  
   return GST_FLOW_OK;
 }
 

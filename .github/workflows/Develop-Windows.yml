@@ -36,11 +36,16 @@ jobs:
       - name: Disable Perl (remove from PATH)
         run: choco uninstall strawberryperl -n
 
+      - name: Set up vcpkg
+        uses: marketplace/actions/setup-vcpkg@v1
+        with:
+          vcpkgGitCommitId: '2021-01-13'
+          
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
             # This one is not needed, as it is the default value anyway.
-            # vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+            vcpkgDirectory: '${{ github.workspace }}/vcpkg'
             vcpkgJsonGlob: '**/gendc_cpp/vcpkg.json'
             runVcpkgInstall: true
 

@@ -1,0 +1,5 @@
+.venv
+build
+.vs
+.vscode
+**/vcpkg_installed/**

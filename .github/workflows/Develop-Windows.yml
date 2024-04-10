@@ -66,6 +66,7 @@ jobs:
           path: ${{ github.workspace }}\vcpkg_installed
           key: ${{ runner.os }}-vcpkg-${{ hashFiles('**/vcpkg.json') }}
       - name: Install dependencies
+        working-directory: gendc_cpp
         shell: cmd
         if: steps.cache_status.outputs.cache-hit != 'true'
         run: |
